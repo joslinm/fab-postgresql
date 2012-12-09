@@ -59,9 +59,6 @@ def prepare():
   if (not files.contains('/etc/sysctl.conf', 'vm.swappiness=0')):
     # Shrink filesystem cache rather than swap out pages
     files.append('/etc/sysctl.conf', 'vm.swappiness=0', use_sudo=True)
-  if (not files.contains('/etc/sysctl.conf', 'vm.overcommit_memory=2')):
-    # Don't let procs use more memory than the system owns
-    files.append('/etc/sysctl.conf', 'vm.overcommit_memory=2', use_sudo=True)
 
 
 def install():
@@ -170,17 +167,22 @@ def persist_value(namespace, key, value):
     values = { key: value }
     write_remote_file(path, yaml.dump(values))
   else:
+    # Get values
     data = read_remote_file(path)
     values = yaml.load(data)
+    
+    # Alter/create values dictionary
     if (values):
       values[key] = value
     else:
       values = { key: value }
-      yml = yaml.dump(values)
-      write_remote_file(path, yml)
+
+    # Write out to server
+    yml = yaml.dump(values)
+    write_remote_file(path, yml)
 
 def create_volume(size, avail_zone='us-east-1d', fs='ext4'):
-   output = run("ec2-create-volume --size %s --availability-zone %s -O %S -W %s"
+   output = run("ec2-create-volume --size %s --availability-zone %s -O %s -W %s"
         % (size, avail_zone, config['access_key'], config['secret_key']));
 
    pattern = re.compile(r"(?P<name>vol-\d+)")
@@ -200,20 +202,73 @@ def attach_volume(vol, dev):
       ' http://169.254.169.254/latest/meta-data/instance-id')
 
   # Attach via ec2 cmd line tools
-  run("ec2-attach-volume %s -i %s -d %s" % (vol, instance_id, dev))
+  run("ec2-attach-volume %s -i %s -d %s -O %s -W %s"
+      % (vol, instance_id, dev, config['access_key'], config['secret_key']))
 
   # Append a dictionary entry of new device
   persist_value('volumes', dev, vol)
 
-def mount_wal(dev, fs='ext4'):
-  sudo
-def mount_data(dev, fs='ext4'):
+def mount(dev, path, fs_type, no_atime=True):
   # Make sure we got XFS package
   prepare()
 
   # Turn up the sequential read-ahead value (defaults 256)
   sudo("blockdev --setra 4096 %s" % dev)
 
+  # Create fresh filesystem on dev
+  if (not confirm("*WARNING* This WILL ERASE ALL DATA ON %s. Ok?" % data_dir)):
+    abort("Aborting")
+
+  # Create filesystem for device
+  puts ("Creating %s filesystem on %s" % (fs_type, path))
+  sudo("umount %s" % dev, warn_only=True)
+  if (fs_type == 'xfs'):
+    # Need to append -f to force
+    sudo("mkfs.%s %s -f" % (fs_type, dev))
+  else:
+    sudo("mkfs.%s %s" % (fs_type, dev))
+
+  # Mount the path on device
+  if (no_atime):
+    sudo("mount %s %s -o noatime" % (dev, data_dir))
+  else:
+    sudo("mount %s %s" % (dev, data_dir))
+
+  # Put in fstab entry
+  fstab_line = "%s  %s  %s  noatime  0  0" % (dev, data_dir, fs)
+  if (not files.contains('/etc/fstab', fstab_line, exact=True, use_sudo=True)):
+    puts("Appending new filesystem to /etc/fstab")
+    files.comment('/etc/fstab', r"^%s" % dev, use_sudo=True)
+    files.append('/etc/fstab', fstab_line, use_sudo=True)
+  else:
+    puts("Fstab already contains entry for %s" % dev)
+
+  # Append a dictionary entry of new device
+  persist_value('mounts', dev, mount)
+
+def mount_wal(dev, fs='ext4'):
+  # Make sure we got XFS package
+  prepare()
+
+  # Get active version 
+  version = read_remote_file("%s/version" % config['main_dir'])
+
+  # Turn up the sequential read-ahead value (defaults 256)
+  sudo("blockdev --setra 4096 %s" % dev)
+
+  # Move pg-xlog to fab-pg directory
+  source_dir = "/var/lib/pgsql/%s/data/pg_xlog" % version
+  dest_base_dir = "%s/wals/%s" % (config['main_dir'], dev)
+  if (not files.exists(dest_base_dir)):
+    sudo("mkdir %s" % dest_base_dir)
+
+  dest_dir = "%s/pg_xlog" % dest_base_dir
+  sudo("mv %s %s" % (source_dir, dest_dir))
+
+  # Mount it..
+  mount(dev, dest_dir, fs)
+
+def mount_data(dev, fs='ext4'):
   # Get active version 
   v_file = open(get("%s/version" % config['main_dir'], 'version')[0], 'r')
   version = v_file.readline().strip()
@@ -221,6 +276,7 @@ def mount_data(dev, fs='ext4'):
   os.remove(v_file.name)
   puts("Using PostgreSQL %s" % version)
   puts("Using PostgreSQL Data Directory %s" % data_dir)
+  mount(dev, fs, data_dir)
 
   # Create fresh filesystem on dev
   if (not confirm("*WARNING* This WILL ERASE ALL DATA ON %s. Ok?" % data_dir)):
