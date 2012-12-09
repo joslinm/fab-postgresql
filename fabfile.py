@@ -1,12 +1,13 @@
 from fabric.api import run, sudo
 from fabric.context_managers import cd
-from fabric.operations import sudo, prompt, get
+from fabric.operations import sudo, prompt, get, put
 from fabric.api import run, env, settings
 from fabric.utils import puts, warn, abort
 from fabric.contrib import files
 from fabric.contrib.console import confirm
 import os
 import yaml
+import tempfile
 
 # Load ec2key in
 HOME = os.getenv('HOME')
@@ -142,11 +143,75 @@ def benchmark(scale=10, clients=10, transactions=10, threads=1):
   run("sudo su postgres -c '%s/pgbench -c %s -t %s -j %s pgbench'" 
       % (bin_dir, clients, transactions, threads))
 
-def mount_data(dev='/dev/xvdf', fs='xfs'):
+def read_remote_file(filename):
+  f = open(get(filename, "%(host)s-tmp-%(basename)s")[0], 'r')
+  data = f.readline().strip()
+  os.remove(f.name)
+  return data
+
+def write_remote_file(remote_path, data):
+  fh = tempfile.NamedTemporaryFile(mode='w+b')
+  fh.write(data)
+  fh.flush()
+  put(fh.name, remote_path, use_sudo=True)
+  fh.close()
+
+def delete_value(namespace, key):
+  path = "%s/config/%s.yml" % (config['main_dir'], namespace)
+  data = read_remote_file(path)
+  values = yaml.load(data)
+  if key in values:
+    del values[key]
+    write_remote_file(path, yaml.dump(values))
+
+def persist_value(namespace, key, value):
+  path = "%s/configs/%s.yml" % (config['main_dir'], namespace)
+  if not files.exists(path):
+    values = { key: value }
+    write_remote_file(path, yaml.dump(values))
+  else:
+    data = read_remote_file(path)
+    values = yaml.load(data)
+    if (values):
+      values[key] = value
+    else:
+      values = { key: value }
+      yml = yaml.dump(values)
+      write_remote_file(path, yml)
+
+def create_volume(size, avail_zone='us-east-1d', fs='ext4'):
+   output = run("ec2-create-volume --size %s --availability-zone %s -O %S -W %s"
+        % (size, avail_zone, config['access_key'], config['secret_key']));
+
+   pattern = re.compile(r"(?P<name>vol-\d+)")
+   match = pattern.match(output)
+   volume = None
+   if match:
+     volume = match.groupdict()['name']
+     puts("Got volume: %s" % volume)
+   else:
+     abort("Couldn't find volume in\n%s" % output)
+
+   return volume
+
+def attach_volume(vol, dev):
+  # Get instance ID
+  instance_id = run('wget -q -O -'
+      ' http://169.254.169.254/latest/meta-data/instance-id')
+
+  # Attach via ec2 cmd line tools
+  run("ec2-attach-volume %s -i %s -d %s" % (vol, instance_id, dev))
+
+  # Append a dictionary entry of new device
+  persist_value('volumes', dev, vol)
+
+def mount_wal(dev, fs='ext4'):
+  sudo
+def mount_data(dev, fs='ext4'):
   # Make sure we got XFS package
   prepare()
 
-  # Sequential read-ahead value
+  # Turn up the sequential read-ahead value (defaults 256)
   sudo("blockdev --setra 4096 %s" % dev)
 
   # Get active version 
