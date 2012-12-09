@@ -10,4 +10,7 @@ Commands
 
 Usage
 =======
-`fab mount_data:dev=/dev/xvd, fs=ext4`
+Examples..
+* `fab install`
+* `fab benchmark:scale=50, threads=10`
+* `fab mount_data:dev=/dev/xvd, fs=ext4`
