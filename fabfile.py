@@ -88,5 +88,11 @@ def install():
     postgresql92-devel.x86_64
     postgresql92-server.x86_64
     postgresql92-test.x86_64'''.replace('\n', ' '))
-  
-  
+
+  # Hand control of data directory to postgres user
+  data_dir = "/var/lib/pgsql/%s/data" % version
+  sudo("chown postgres %s" % data_dir)
+
+  # Init db
+  if confirm("Do you want to initialize the database now?"):
+    run("sudo su postgres -c '/usr/pgsql-%s/bin/pg_ctl initdb -D %s'" % (version, data_dir), warn_only=True)
