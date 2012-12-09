@@ -202,6 +202,7 @@ def attach_volume(vol, dev):
       ' http://169.254.169.254/latest/meta-data/instance-id')
 
   # Attach via ec2 cmd line tools
+  puts("Instance ID: '%s'" % instance_id)
   run("ec2-attach-volume %s -i %s -d %s -O %s -W %s"
       % (vol, instance_id, dev, config['access_key'], config['secret_key']))
 
@@ -261,7 +262,6 @@ def mount_wal(dev, fs='ext4'):
   dest_base_dir = "%s/wals/%s" % (config['main_dir'], dev)
   if (not files.exists(dest_base_dir)):
     sudo("mkdir %s" % dest_base_dir)
-
   dest_dir = "%s/pg_xlog" % dest_base_dir
   sudo("mv %s %s" % (source_dir, dest_dir))
 
@@ -276,37 +276,6 @@ def mount_data(dev, fs='ext4'):
   os.remove(v_file.name)
   puts("Using PostgreSQL %s" % version)
   puts("Using PostgreSQL Data Directory %s" % data_dir)
-  mount(dev, fs, data_dir)
 
-  # Create fresh filesystem on dev
-  if (not confirm("*WARNING* This WILL ERASE ALL DATA ON %s. Ok?" % data_dir)):
-    abort("Aborting")
-
-  # Create filesystem for device
-  puts ("Creating %s filesystem.." % fs)
-  sudo("umount %s" % dev, warn_only=True)
-  if (fs == 'xfs'):
-    # Need to append -f to force
-    sudo("mkfs.%s %s -f" % (fs, dev))
-  else:
-    sudo("mkfs.%s %s" % (fs, dev))
-  
-  # Mount the postgresql data on device
-  sudo("mount %s %s -o noatime" % (dev, data_dir))
-
-  # Put in fstab entry
-  fstab_line = "%s  %s  %s  noatime  0  0" % (dev, data_dir, fs)
-  if (not files.contains('/etc/fstab', fstab_line, exact=True, use_sudo=True)):
-    puts("Appending new filesystem to /etc/fstab")
-    files.comment('/etc/fstab', r"^%s" % dev, use_sudo=True)
-    files.append('/etc/fstab', fstab_line, use_sudo=True)
-  else:
-    puts("Fstab already contains entry for %s" % dev)
-
-
-
-
-
-
-
-
+  # Mount dev with fs type to data_dir
+  mount(dev, data_dir, fs)
