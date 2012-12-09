@@ -1,0 +1,6 @@
+pgman
+=============
+
+* install
+  * install postgresql
+
