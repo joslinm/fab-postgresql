@@ -4,6 +4,7 @@ from fabric.operations import sudo, prompt, get
 from fabric.api import run, env, settings
 from fabric.utils import puts, warn, abort
 from fabric.contrib import files
+from fabric.contrib.console import confirm
 import os
 import yaml
 
@@ -22,8 +23,6 @@ def hello():
   print "HI!";
 
 def prepare():
-  global config
-
   # Prepare yum dependencies
   sudo('yum update --assumeyes');
   sudo('yum remove postgresql9-libs --assumeyes');
@@ -72,11 +71,12 @@ def install():
   # Download YUM package
   package_path = "./.fab-pg/packages/%s.rpm" % active_package['alias']
   should_download = True
-  if (files.exists("./packages/%s" % package_path)):
-    should_download = confirm("Using existing RPM package? [Y/n]")
+  if (files.exists(package_path)):
+    should_download = confirm("Using existing RPM package?")
 
-  puts("Downloading %s RPM package \ninto: %s \nfrom: %s" 
-      % (version, package_path, active_package['RPM']));
+  if should_download:
+    puts("Downloading %s RPM package \ninto: %s \nfrom: %s" 
+        % (version, package_path, active_package['RPM']));
   sudo("curl %s > %s" % (active_package['RPM'], package_path))
 
   # Add YUM repository
