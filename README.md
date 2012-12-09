@@ -2,5 +2,5 @@ pgman
 =============
 
 * install
-  * install postgresql
+  * `fab install postgresql`
 
