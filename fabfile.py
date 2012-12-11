@@ -50,10 +50,13 @@ def prepare():
 
   # Prepare fab-pg directory
   if (not files.exists('.fab-pg')):
-    puts("Creating packages directory..")
     run("mkdir %s" % config['main_dir'])
+  if (not files.exists("%s/packages" % config['main_dir'])):
     run("mkdir %s/packages" % config['main_dir'])
+  if (not files.exists("%s/configs" % config['main_dir'])):
     run("mkdir %s/configs" % config['main_dir'])
+  if (not files.exists("%s/wals" % config['main_dir'])):
+    run("mkdir %s/wals" % config['main_dir'])
 
   # Prepare system
   if (not files.contains('/etc/sysctl.conf', 'vm.swappiness=0')):
@@ -106,13 +109,37 @@ def install():
   sudo("chown postgres %s" % config['log_dir'])
 
   # Init db
+  init()
+  if confirm("Do you want to start the database now?"):
+    start()
+
+def init():
+  version = read_remote_file(config['main_dir'] + '/version')
+  data_dir = "/var/lib/pgsql/%s/data" % version
   if confirm("Do you want to initialize the database now?"):
+    sudo("rm -r %s" % data_dir, warn_only=True)
+    # sudo("mkdir %s" % data_dir)
+
+    # # Hand control of data + log directory to postgres user
+    # data_dir = "/var/lib/pgsql/%s/data" % version
+    # sudo("chown postgres %s" % data_dir)
+    if (not files.exists(config['log_dir'])):
+      sudo("touch %s" % config['log_dir'])
+    sudo("chown postgres %s" % config['log_dir'])
     run("sudo su postgres -c '/usr/pgsql-%s/bin/pg_ctl initdb -D %s'" %
         (version, data_dir), warn_only=True)
-  if confirm("Do you want to start the database now?"):
-    run("sudo su postgres -c '/usr/pgsql-%s/bin/pg_ctl start -D %s -l %s'" %
+
+def start():
+  version = read_remote_file(config['main_dir'] + '/version')
+  data_dir = "/var/lib/pgsql/%s/data" % version
+  run("sudo su postgres -c '/usr/pgsql-%s/bin/pg_ctl start -D %s -l %s'" %
         (version, data_dir, config['log_dir']))
 
+def stop():
+  version = read_remote_file(config['main_dir'] + '/version')
+  data_dir = "/var/lib/pgsql/%s/data" % version
+  run("sudo su postgres -c '/usr/pgsql-%s/bin/pg_ctl stop -D %s'" %
+        (version, data_dir), warn_only=True)
 
 def benchmark(scale=10, clients=10, transactions=10, threads=1):
   # Get active version 
@@ -217,7 +244,7 @@ def mount(dev, path, fs_type, no_atime=True):
   sudo("blockdev --setra 4096 %s" % dev)
 
   # Create fresh filesystem on dev
-  if (not confirm("*WARNING* This WILL ERASE ALL DATA ON %s. Ok?" % data_dir)):
+  if (not confirm("*WARNING* This WILL ERASE ALL DATA ON %s. Ok?" % path)):
     abort("Aborting")
 
   # Create filesystem for device
@@ -231,12 +258,12 @@ def mount(dev, path, fs_type, no_atime=True):
 
   # Mount the path on device
   if (no_atime):
-    sudo("mount %s %s -o noatime" % (dev, data_dir))
+    sudo("mount %s %s -o noatime" % (dev, path))
   else:
-    sudo("mount %s %s" % (dev, data_dir))
+    sudo("mount %s %s" % (dev, path))
 
   # Put in fstab entry
-  fstab_line = "%s  %s  %s  noatime  0  0" % (dev, data_dir, fs)
+  fstab_line = "%s  %s  %s  noatime  0  0" % (dev, path, fs_type)
   if (not files.contains('/etc/fstab', fstab_line, exact=True, use_sudo=True)):
     puts("Appending new filesystem to /etc/fstab")
     files.comment('/etc/fstab', r"^%s" % dev, use_sudo=True)
@@ -248,8 +275,7 @@ def mount(dev, path, fs_type, no_atime=True):
   persist_value('mounts', dev, mount)
 
 def mount_wal(dev, fs='ext4'):
-  # Make sure we got XFS package
-  prepare()
+  stop()
 
   # Get active version 
   version = read_remote_file("%s/version" % config['main_dir'])
@@ -257,16 +283,13 @@ def mount_wal(dev, fs='ext4'):
   # Turn up the sequential read-ahead value (defaults 256)
   sudo("blockdev --setra 4096 %s" % dev)
 
-  # Move pg-xlog to fab-pg directory
-  source_dir = "/var/lib/pgsql/%s/data/pg_xlog" % version
-  dest_base_dir = "%s/wals/%s" % (config['main_dir'], dev)
-  if (not files.exists(dest_base_dir)):
-    sudo("mkdir %s" % dest_base_dir)
-  dest_dir = "%s/pg_xlog" % dest_base_dir
-  sudo("mv %s %s" % (source_dir, dest_dir))
-
-  # Mount it..
+  # Backup
+  dest_dir = "/var/lib/pgsql/%s/data/pg_xlog" % version
+  sudo("cp -r %s %s.bak" % (dest_dir, dest_dir))
   mount(dev, dest_dir, fs)
+  sudo("chown postgres %s" % dest_dir)
+  sudo("mv %s.bak/* %s" % (dest_dir, dest_dir))
+  start()
 
 def mount_data(dev, fs='ext4'):
   # Get active version 

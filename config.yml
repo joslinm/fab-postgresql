@@ -1,0 +1,39 @@
+# PostgreSQL install config
+
+# Fab-pg options
+main_dir: ".fab-pg"
+
+# Postgres options
+log_dir: "/var/log/postgres.log"
+
+# AWS options
+
+# auth
+access_key: "AKIAIBON6JZNOYPF47IQ"
+secret_key: "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"
+
+# ebs
+wal_drives: 0
+data_drives: 1
+
+# Download sites
+versions:
+  "9.2":
+    alias: "postgresql9-2"
+    RPM: "http://yum.postgresql.org/9.2/redhat/rhel-6-x86_64/pgdg-redhat92-9.2-7.noarch.rpm"
+    packages:
+      - postgresql92-contrib.x86_64
+      - postgresql92-devel.x86_64
+      - postgresql92-server.x86_64
+      - postgresql92-test.x86_64
+  "9.1":
+    alias: "postgresql9-1"
+    RPM: "http://yum.postgresql.org/9.1/redhat/rhel-latest-x86_64/pgdg-redhat91-9.1-5.noarch.rpm"
+    packages:
+      - postgresql91-contrib.x86_64
+      - postgresql91-devel.x86_64
+      - postgresql91-server.x86_64
+      - postgresql91-test.x86_64
+
+    
+
