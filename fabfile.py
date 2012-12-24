@@ -8,6 +8,7 @@ from fabric.contrib.console import confirm
 import os
 import yaml
 import tempfile
+import shutil
 
 # Load ec2key in
 HOME = os.getenv('HOME')
@@ -118,11 +119,6 @@ def init():
   data_dir = "/var/lib/pgsql/%s/data" % version
   if confirm("Do you want to initialize the database now?"):
     sudo("rm -r %s" % data_dir, warn_only=True)
-    # sudo("mkdir %s" % data_dir)
-
-    # # Hand control of data + log directory to postgres user
-    # data_dir = "/var/lib/pgsql/%s/data" % version
-    # sudo("chown postgres %s" % data_dir)
     if (not files.exists(config['log_dir'])):
       sudo("touch %s" % config['log_dir'])
     sudo("chown postgres %s" % config['log_dir'])
@@ -180,6 +176,15 @@ def write_remote_file(remote_path, data):
   put(fh.name, remote_path, use_sudo=True)
   fh.close()
 
+def read_value(namespace, key):
+  path = "%s/config/%s.yml" % (config['main_dir'], namespace)
+  data = read_remote_file(path)
+  values = yaml.load(data)
+  if key in values:
+    return key
+  else:
+    return None
+
 def delete_value(namespace, key):
   path = "%s/config/%s.yml" % (config['main_dir'], namespace)
   data = read_remote_file(path)
@@ -187,6 +192,9 @@ def delete_value(namespace, key):
   if key in values:
     del values[key]
     write_remote_file(path, yaml.dump(values))
+    return key
+  else:
+    return None
 
 def persist_value(namespace, key, value):
   path = "%s/configs/%s.yml" % (config['main_dir'], namespace)
@@ -275,6 +283,7 @@ def mount(dev, path, fs_type, no_atime=True):
   persist_value('mounts', dev, mount)
 
 def mount_wal(dev, fs='ext4'):
+  prepare()
   stop()
 
   # Get active version 
@@ -283,12 +292,25 @@ def mount_wal(dev, fs='ext4'):
   # Turn up the sequential read-ahead value (defaults 256)
   sudo("blockdev --setra 4096 %s" % dev)
 
-  # Backup
-  dest_dir = "/var/lib/pgsql/%s/data/pg_xlog" % version
-  sudo("cp -r %s %s.bak" % (dest_dir, dest_dir))
+  # Move pg_xlog to wals/path.dev/
+  dest_dir = "/home/ec2-user/%s/wals/%s" % (config['main_dir'], dev.replace('/','.'))
+  src_dir = "/var/lib/pgsql/%s/data/pg_xlog" % version
+
+  # Move all files 
+  sudo("mkdir %s" % (dest_dir), warn_only = True)
+
+  # Mount .fab-pg/wals/path.to.dev/
   mount(dev, dest_dir, fs)
+
+  # Point it at new origin
+  sudo("sudo mv %s* %s" % (src_dir, dest_dir))
+  dest_dir = "%s/pg_xlog" % dest_dir # pg_xlog was moved into the directory
+  sudo("ln -s %s %s" % (dest_dir, src_dir))
+
+  # Grant postgres permissions
   sudo("chown postgres %s" % dest_dir)
-  sudo("mv %s.bak/* %s" % (dest_dir, dest_dir))
+  sudo("chown postgres %s" % src_dir)
+
   start()
 
 def mount_data(dev, fs='ext4'):
