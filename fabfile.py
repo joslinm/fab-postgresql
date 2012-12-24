@@ -343,6 +343,7 @@ def install_redis():
   with cd("~/src/redis/redis-2.6.7"):
     run("make")
 
-  run("echo PATH=$PATH:~/src/redis/redis-2.6.7/src >> ~/.bashrc")
+  line = "PATH=$PATH:$HOME/src/redis/redis-2.6.7/src"
+  files.append('~/.bashrc', line)
   run("source ~/.bashrc")
 
