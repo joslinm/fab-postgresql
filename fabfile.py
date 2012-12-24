@@ -327,6 +327,22 @@ def mount_data(dev, fs='ext4'):
 
 ### MEMCACHED ###
 
-def install_memcached:
+def install_memcached():
   depends = ['cyrus-sasl-devel', 'cyrus-sasl-gssapi', 'cyrus-sasl-md5', 'cyrus-sasl-plain', 'memcached']
   sudo("yum install %s --assumeyes" % ' '.join(depends) )
+
+
+### REDIS ### 
+
+def install_redis():
+  run("mkdir ~/src", warn_only=True)
+  run("mkdir ~/src/redis", warn_only=True)
+  with cd("~/src/redis"):
+    run("wget http://redis.googlecode.com/files/redis-2.6.7.tar.gz")
+    run("tar xzf redis-2.6.7.tar.gz")
+  with cd("~/src/redis/redis-2.6.7"):
+    run("make")
+
+  run("echo PATH=$PATH:~/src/redis/redis-2.6.7/src >> ~/.bashrc")
+  run("source ~/.bashrc")
+
