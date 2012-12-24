@@ -96,17 +96,17 @@ def install():
   sudo("curl %s > %s" % (pg['RPM'], package_path))
 
   # Add YUM repository
-  sudo("yum install %s" % package_path, warn_only=True)
+  sudo("yum install %s --assumeyes" % package_path, warn_only=True)
   
   # Install necessary PostgreSQL packages
   sudo("yum install %s --assumeyes" % ' '.join(pg['packages']))
 
   # Hand control of data + log directory to postgres user
-  data_dir = "/var/lib/pgsql/%s/data" % version
-  sudo("chown postgres %s" % data_dir)
-  if (not files.exists(config['log_dir'])):
-    sudo("touch %s" % config['log_dir'])
-  sudo("chown postgres %s" % config['log_dir'])
+  # data_dir = "/var/lib/pgsql/%s/data" % version
+  # sudo("chown postgres %s" % data_dir)
+  # if (not files.exists(config['log_dir'])):
+  #   sudo("touch %s" % config['log_dir'])
+  # sudo("chown postgres %s" % config['log_dir'])
 
   # Init db
   init()
@@ -302,3 +302,9 @@ def mount_data(dev, fs='ext4'):
 
   # Mount dev with fs type to data_dir
   mount(dev, data_dir, fs)
+
+### MEMCACHED ###
+
+def install_memcached:
+  depends = ['cyrus-sasl-devel', 'cyrus-sasl-gssapi', 'cyrus-sasl-md5', 'cyrus-sasl-plain', 'memcached']
+  sudo("yum install %s --assumeyes" % ' '.join(depends) )
